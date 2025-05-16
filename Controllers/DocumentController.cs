@@ -16,15 +16,18 @@ public class DocumentController : ControllerBase
     private readonly DBContext _context;
     private readonly IWebHostEnvironment _env;
     private readonly IHttpClientFactory _httpFactory;
+    private readonly PdfCoKeyManager _keyManager;
 
     public DocumentController(
         IWebHostEnvironment env,
         DBContext context,
-        IHttpClientFactory httpFactory)
+        IHttpClientFactory httpFactory,
+        PdfCoKeyManager keyManager)
     {
         _env = env;
         _context = context;
         _httpFactory = httpFactory;
+        _keyManager = keyManager;
     }
 
     [Authorize]
@@ -39,33 +42,16 @@ public class DocumentController : ControllerBase
         if (idClaim == null) return Unauthorized();
         int userId = int.Parse(idClaim.Value);
 
-        // 2. Lưu file gốc vào wwwroot/uploads/originals
         var originalsDir = Path.Combine(_env.WebRootPath, "uploads", "originals");
         Directory.CreateDirectory(originalsDir);
-
         var ext = Path.GetExtension(req.File.FileName);
         var originalName = $"doc_{Guid.NewGuid()}{ext}";
-        var originalPath = Path.Combine(originalsDir, originalName);
-        await using (var fs = new FileStream(originalPath, FileMode.Create))
+        var localPath = Path.Combine(originalsDir, originalName);
+        await using (var fs = new FileStream(localPath, FileMode.Create))
             await req.File.CopyToAsync(fs);
 
-        var remotePdfUrl = await ConvertFileToPdfViaUploadAsync(originalPath, req.File.ContentType, originalName);
-
-        // 4. Download PDF về server
-        var pdfDir = Path.Combine(_env.WebRootPath, "uploads", "pdfs");
-        Directory.CreateDirectory(pdfDir);
-        var pdfFileName = Path.GetFileNameWithoutExtension(originalName) + ".pdf";
-        var pdfPath = Path.Combine(pdfDir, pdfFileName);
-        await DownloadFileAsync(remotePdfUrl, pdfPath);
-
-        // 5. Đếm số trang và tính previewLimit
-        int totalPages;
-        using (var pdfDoc = PdfDocument.Open(pdfPath))
-            totalPages = pdfDoc.NumberOfPages;
-        int previewLimit = Math.Max(1, totalPages / 3);
-
-        // 6. Lưu metadata vào CSDL
-        var doc = new Document
+        // 3. Chỉ lưu metadata với ConversionStatus = "Pending", không gọi PDF.co
+        var document = new Document
         {
             Title = req.Title,
             Description = req.Description,
@@ -75,24 +61,14 @@ public class DocumentController : ControllerBase
             CreatedBy = userId,
             IsApproved = req.IsApproved,
             IsPremium = req.IsPremium,
-            TotalPages = totalPages,
-            PreviewPageLimit = previewLimit,
             FileUrl = $"/uploads/originals/{originalName}",
-            PdfUrl = $"/uploads/pdfs/{pdfFileName}"
+            // không set ConversionJobId,
+            ConversionStatus = "Pending"
         };
-        _context.Documents.Add(doc);
+        _context.Documents.Add(document);
         await _context.SaveChangesAsync();
 
-        // 7. Trả về URL public
-        var publicPdfUrl = $"{Request.Scheme}://{Request.Host}{doc.PdfUrl}";
-        return Ok(new
-        {
-            message = "Upload & convert PDF thành công.",
-            documentId = doc.Id,
-            totalPages,
-            previewLimit,
-            pdfUrl = publicPdfUrl
-        });
+        return Accepted(new { message = "Tài liệu đã được upload thành công" });
     }
     // GET: Chi tiết tài liệu (public)
     [HttpGet("{id}")]
@@ -285,7 +261,6 @@ public class DocumentController : ControllerBase
         return claim != null ? int.Parse(claim.Value) : 0;
     }
 
-    // Helper: Kiểm tra Premium
     private async Task<bool> HasPremiumAccess(int userId)
     {
         var now = DateTime.UtcNow;
@@ -294,62 +269,5 @@ public class DocumentController : ControllerBase
             p.StartDate <= now &&
             p.EndDate >= now &&
             p.DownloadsUsed < p.Package.MaxDownloads);
-    }
-    private async Task<string> ConvertFileToPdfViaUploadAsync(
-    string filePath, string contentType, string fileName)
-    {
-        var client = _httpFactory.CreateClient("PdfCo");
-
-        // 1) Upload file gốc để lấy URL
-        using var uploadContent = new MultipartFormDataContent();
-        await using var fs = System.IO.File.OpenRead(filePath);
-        var streamContent = new StreamContent(fs);
-        streamContent.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
-        uploadContent.Add(streamContent, "file", fileName);
-
-        var uploadResp = await client.PostAsync("file/upload", uploadContent);
-        uploadResp.EnsureSuccessStatusCode();
-        var uploadJson = JsonDocument.Parse(
-            await uploadResp.Content.ReadAsStringAsync()
-        );
-        // trường "url" trỏ đến file đã upload :contentReference[oaicite:0]{index=0}
-        var fileUrl = uploadJson
-            .RootElement
-            .GetProperty("url")
-            .GetString()!;
-
-        // 2) Convert từ URL sang PDF
-        var convertPayload = new
-        {
-            name = Path.GetFileNameWithoutExtension(fileName) + ".pdf",
-            url = fileUrl,
-            async = false
-        };
-        var convertResp = await client.PostAsJsonAsync(
-            "pdf/convert/from/doc", convertPayload
-        );
-        convertResp.EnsureSuccessStatusCode();
-        using var convertJson = JsonDocument.Parse(await convertResp.Content.ReadAsStringAsync());
-        var urlElement = convertJson.RootElement.GetProperty("url");
-        string pdfUrl;
-
-        // nếu lỡ là mảng thì vẫn xử lý được, còn thường là string
-        if (urlElement.ValueKind == JsonValueKind.Array)
-        {
-            pdfUrl = urlElement[0].GetString()!;
-        }
-        else
-        {
-            pdfUrl = urlElement.GetString()!;
-        }
-        return pdfUrl;
-    }
-
-    // Tải file từ URL về localPath
-    private async Task DownloadFileAsync(string url, string localPath)
-    {
-        var client = _httpFactory.CreateClient("PdfCo");
-        var bytes = await client.GetByteArrayAsync(url);
-        await System.IO.File.WriteAllBytesAsync(localPath, bytes);
     }
 }

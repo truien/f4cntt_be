@@ -98,13 +98,14 @@ builder.Services.AddHttpClient("PdfRest", client =>
     client.BaseAddress = new Uri("https://api.pdfrest.com/");
     client.DefaultRequestHeaders.Add("Api-Key", "04b01bbd-4b0c-4888-afbd-00055c2765cf");
 });
-builder.Services.AddHttpClient("PdfCo", client =>
-{
-    client.BaseAddress = new Uri("https://api.pdf.co/v1/");
-    client.DefaultRequestHeaders.Add("x-api-key",
-        builder.Configuration["PdfCo:ApiKey"]);
-});
+builder.Services.AddSingleton<PdfCoKeyManager>();
 
+builder.Services.AddHttpClient("PdfCo")
+    .ConfigureHttpClient((sp, client) =>
+    {
+        client.BaseAddress = new Uri("https://api.pdf.co/v1/");
+    });
+builder.Services.AddHostedService<PdfConversionWorker>();
 builder.Services.AddScoped<IVnpay, Vnpay>();
 builder.Services.AddHttpClient<IHuggingFaceService, HuggingFaceService>();
 builder.Services.AddAuthorization();
