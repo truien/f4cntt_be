@@ -185,7 +185,7 @@ public partial class DBContext : DbContext
             entity.Property(e => e.FileUrl)
                 .HasMaxLength(500)
                 .HasColumnName("file_url");
-            entity.Property(e => e.IsApproved).HasColumnName("is_approved");
+            entity.Property(e => e.Status).HasColumnName("status");
             entity.Property(e => e.IsPremium).HasColumnName("is_premium");
             entity.Property(e => e.PdfUrl)
                 .HasMaxLength(500)

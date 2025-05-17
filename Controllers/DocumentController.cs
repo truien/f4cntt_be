@@ -59,7 +59,7 @@ public class DocumentController : ControllerBase
             PublisherId = req.PublisherId,
             CategoryId = req.CategoryId,
             CreatedBy = userId,
-            IsApproved = req.IsApproved,
+            Status = req.Status,
             IsPremium = req.IsPremium,
             FileUrl = $"/uploads/originals/{originalName}",
             // không set ConversionJobId,
@@ -77,7 +77,7 @@ public class DocumentController : ControllerBase
             .Include(d => d.Author)
             .Include(d => d.Category)
             .Include(d => d.Publisher)
-            .FirstOrDefaultAsync(d => d.Id == id && d.IsApproved == true);
+            .FirstOrDefaultAsync(d => d.Id == id && d.Status == 1);
         if (doc == null) return NotFound();
 
         return Ok(new
@@ -88,7 +88,7 @@ public class DocumentController : ControllerBase
             author = doc.Author?.Name,
             category = doc.Category?.Name,
             publisher = doc.Publisher?.Name,
-            isApproved = doc.IsApproved,
+            Status = doc.Status,
             isPremium = doc.IsPremium,
             createdAt = doc.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ss"),
             totalPages = doc.TotalPages,
@@ -101,7 +101,7 @@ public class DocumentController : ControllerBase
     public async Task<IActionResult> ViewPdf(int id)
     {
         var doc = await _context.Documents.FindAsync(id);
-        if (doc == null || !doc.IsApproved) return NotFound();
+        if (doc == null || doc.Status == 0) return NotFound();
 
         var userId = GetUserId();
         var hasPremium = await HasPremiumAccess(userId);
@@ -120,7 +120,7 @@ public class DocumentController : ControllerBase
     public async Task<IActionResult> Download(int id)
     {
         var doc = await _context.Documents.FindAsync(id);
-        if (doc == null || !doc.IsApproved) return NotFound();
+        if (doc == null || doc.Status == 0 || doc.Status == 2) return NotFound();
 
         var userId = GetUserId();
         var hasPremium = await HasPremiumAccess(userId);
