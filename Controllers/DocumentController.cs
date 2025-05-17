@@ -61,9 +61,8 @@ public class DocumentController : ControllerBase
             CreatedBy = userId,
             Status = req.Status,
             IsPremium = req.IsPremium,
-            FileUrl = $"/uploads/originals/{originalName}",
-            // không set ConversionJobId,
-            ConversionStatus = "Pending"
+            ConversionStatus = "Pending",
+            Summarystatus = "Pending"
         };
         _context.Documents.Add(document);
         await _context.SaveChangesAsync();

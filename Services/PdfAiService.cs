@@ -53,9 +53,8 @@ namespace BACKEND.Services
                 .GetString()!;
             _logger.LogInformation("Received English summary for docId={DocId}", docId);
 
-            // 2) Dịch sang tiếng Việt bằng LibreTranslate
             var vietnamese = await _translator.ToVietnamese(english);
-            _logger.LogInformation("Translated summary to Vietnamese for docId={DocId}", docId);
+            _logger.LogInformation("Translated to Vietnamese for docId={DocId}", docId);
 
             return vietnamese;
         }
