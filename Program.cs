@@ -7,6 +7,8 @@ using Microsoft.EntityFrameworkCore;
 using DotNetEnv;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using VNPAY.NET;
+using System.Net.Http.Headers;
+using BACKEND.Utilities;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<EmailService>();
@@ -93,11 +95,6 @@ builder.WebHost.ConfigureKestrel(serverOptions =>
     serverOptions.ListenAnyIP(5000);
 });
 
-builder.Services.AddHttpClient("PdfRest", client =>
-{
-    client.BaseAddress = new Uri("https://api.pdfrest.com/");
-    client.DefaultRequestHeaders.Add("Api-Key", "04b01bbd-4b0c-4888-afbd-00055c2765cf");
-});
 builder.Services.AddSingleton<PdfCoKeyManager>();
 
 builder.Services.AddHttpClient("PdfCo")
@@ -107,7 +104,6 @@ builder.Services.AddHttpClient("PdfCo")
     });
 builder.Services.AddHostedService<PdfConversionWorker>();
 builder.Services.AddScoped<IVnpay, Vnpay>();
-builder.Services.AddHttpClient<IHuggingFaceService, HuggingFaceService>();
 builder.Services.AddAuthorization();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();

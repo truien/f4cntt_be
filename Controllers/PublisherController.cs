@@ -7,7 +7,7 @@ using System.ComponentModel.DataAnnotations;
 namespace BACKEND.Controllers;
 
 [ApiController]
-[Route("api/publishers")]
+[Route("api/admin/publishers")]
 public class PublisherController : ControllerBase
 {
     private readonly DBContext _context;
@@ -17,21 +17,60 @@ public class PublisherController : ControllerBase
         _context = context;
     }
 
-    // GET: Lấy danh sách nhà xuất bản
+    // GET: Lấy danh sách nhà xuất bản với tìm kiếm, sắp xếp, phân trang
     [HttpGet]
-    public async Task<IActionResult> GetAll()
+    public async Task<IActionResult> GetAll(
+        [FromQuery] int page = 1,
+        [FromQuery] int size = 10,
+        [FromQuery] string? search = null,
+        [FromQuery] string sortField = "name",
+        [FromQuery] string sortDirection = "asc"
+    )
     {
-        var publishers = await _context.Publishers
+        var query = _context.Publishers.AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            query = query.Where(p => p.Name.Contains(search));
+        }
+
+        bool asc = sortDirection.Equals("asc", StringComparison.OrdinalIgnoreCase);
+        query = sortField.ToLower() switch
+        {
+            "name" => asc ? query.OrderBy(p => p.Name) : query.OrderByDescending(p => p.Name),
+            "bookscount" => asc
+                ? query.OrderBy(p => _context.Documents.Count(d => d.PublisherId == p.Id))
+                : query.OrderByDescending(p => _context.Documents.Count(d => d.PublisherId == p.Id)),
+            _ => query.OrderBy(p => p.Name),
+        };
+
+        var totalItems = await query.CountAsync();
+        var totalPages = (int)Math.Ceiling(totalItems / (double)size);
+
+        var items = await query
+            .Skip((page - 1) * size)
+            .Take(size)
             .Select(p => new
             {
                 p.Id,
-                p.Name
-            }).ToListAsync();
+                p.Name,
+                BooksCount = _context.Documents.Count(d => d.PublisherId == p.Id)
+            })
+            .ToListAsync();
 
-        return Ok(publishers);
+        return Ok(new
+        {
+            items,
+            totalPages,
+            totalItems,
+            page,
+            size,
+            hasPrevious = page > 1,
+            hasNext = page < totalPages
+        });
     }
 
-    // GET: Chi tiết nhà xuất bản
+    // GET: Chi tiết 1 nhà xuất bản
     [HttpGet("{id}")]
     public async Task<IActionResult> GetById(int id)
     {
@@ -39,10 +78,17 @@ public class PublisherController : ControllerBase
         if (publisher == null)
             return NotFound(new { message = "Không tìm thấy nhà xuất bản." });
 
-        return Ok(publisher);
+        var booksCount = await _context.Documents.CountAsync(d => d.PublisherId == publisher.Id);
+
+        return Ok(new
+        {
+            publisher.Id,
+            publisher.Name,
+            BooksCount = booksCount
+        });
     }
 
-    // POST: Thêm nhà xuất bản
+    // POST: Thêm mới nhà xuất bản
     [Authorize(Roles = "admin")]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreatePublisherDto request)
@@ -57,22 +103,16 @@ public class PublisherController : ControllerBase
         _context.Publishers.Add(publisher);
         await _context.SaveChangesAsync();
 
-        var result = new PublisherDto
-        {
-            Id = publisher.Id,
-            Name = publisher.Name
-        };
-        return CreatedAtAction(nameof(GetById), new { id = publisher.Id }, result);
+        return Ok(new { message = "Thêm mới thành công."});
     }
-
 
     // PUT: Cập nhật nhà xuất bản
     [Authorize(Roles = "admin")]
     [HttpPut("{id}")]
-    public async Task<IActionResult> Update(int id, [FromBody] Publisher input)
+    public async Task<IActionResult> Update(int id, [FromBody] UpdatePublisherDto input)
     {
-        if (id != input.Id)
-            return BadRequest(new { message = "ID không khớp." });
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
 
         var publisher = await _context.Publishers.FindAsync(id);
         if (publisher == null)
@@ -84,7 +124,7 @@ public class PublisherController : ControllerBase
         return Ok(new { message = "Cập nhật thành công." });
     }
 
-    // DELETE: Xoá nhà xuất bản (nếu chưa có tài liệu liên kết)
+    // DELETE: Xóa nhà xuất bản (chỉ khi chưa có tài liệu liên kết)
     [Authorize(Roles = "admin")]
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(int id)
@@ -104,15 +144,25 @@ public class PublisherController : ControllerBase
 
         return Ok(new { message = "Đã xoá nhà xuất bản." });
     }
+
+    // DTO Classes
     public class CreatePublisherDto
     {
         [Required]
+        [StringLength(100, MinimumLength = 2)]
         public string Name { get; set; } = null!;
     }
+
+    public class UpdatePublisherDto
+    {
+        [Required]
+        [StringLength(100, MinimumLength = 2)]
+        public string Name { get; set; } = null!;
+    }
+
     public class PublisherDto
     {
         public int Id { get; set; }
         public string Name { get; set; } = null!;
     }
-
 }

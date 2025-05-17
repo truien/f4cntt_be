@@ -23,21 +23,51 @@ public class AdminUserController : ControllerBase
     // GET: Lấy danh sách tất cả người dùng
     [Authorize(Roles = "admin")]
     [HttpGet]
-    public async Task<IActionResult> GetAllUsers([FromQuery] UserQueryParameters p)
+    public async Task<IActionResult> GetAllUsers(
+    [FromQuery] int page = 1,
+    [FromQuery] int size = 10,
+    [FromQuery] string? search = null,
+    [FromQuery] string sortField = "username",
+    [FromQuery] string sortDirection = "asc"
+)
     {
-        // 1. Chuẩn bị query gốc
+        // Chuẩn bị query gốc, không lấy tài khoản admin
         var query = _context.Users
             .Include(u => u.Role)
             .Where(u => u.RoleId != 1)
             .AsNoTracking();
 
-        // 2. Tính tổng
+        // Tìm kiếm theo username, email, fullname
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+#pragma warning disable CS8602 // Dereference of a possibly null reference.
+            query = query.Where(u =>
+                u.Username.Contains(search) ||
+                u.Email.Contains(search) ||
+                u.FullName.Contains(search));
+#pragma warning restore CS8602 // Dereference of a possibly null reference.
+        }
+
+        // Xử lý sắp xếp động theo sortField và sortDirection
+        bool asc = sortDirection.Equals("asc", StringComparison.OrdinalIgnoreCase);
+        query = sortField.ToLower() switch
+        {
+            "username" => asc ? query.OrderBy(u => u.Username) : query.OrderByDescending(u => u.Username),
+            "email" => asc ? query.OrderBy(u => u.Email) : query.OrderByDescending(u => u.Email),
+            "fullname" => asc ? query.OrderBy(u => u.FullName) : query.OrderByDescending(u => u.FullName),
+            "createdat" => asc ? query.OrderBy(u => u.CreatedAt) : query.OrderByDescending(u => u.CreatedAt),
+            "isactive" => asc ? query.OrderBy(u => u.IsActive) : query.OrderByDescending(u => u.IsActive),
+            "role" => asc ? query.OrderBy(u => u.Role.RoleName) : query.OrderByDescending(u => u.Role.RoleName),
+            _ => query.OrderBy(u => u.Username),
+        };
+
+        // Tính tổng số lượng người dùng
         var totalItems = await query.CountAsync();
-        // 3. Lấy dữ liệu theo trang
+
+        // Lấy dữ liệu theo trang
         var users = await query
-            .OrderBy(u => u.Id) // hoặc OrderByDescending(u => u.CreatedAt)
-            .Skip((p.Page - 1) * p.Size)
-            .Take(p.Size)
+            .Skip((page - 1) * size)
+            .Take(size)
             .Select(u => new
             {
                 u.Id,
@@ -49,29 +79,29 @@ public class AdminUserController : ControllerBase
                 u.IsActive,
                 Avatar = !string.IsNullOrEmpty(u.Avatar)
                     ? (u.Avatar.StartsWith("http") ? u.Avatar : $"{Request.Scheme}://{Request.Host}/uploads/avatars/{u.Avatar}")
-                    : null
-                ,
+                    : null,
                 CanDelete = !_context.Documents.Any(d => d.CreatedBy == u.Id)
             })
             .ToListAsync();
 
-        // 4. Tính tổng số trang
-        var totalPages = (int)Math.Ceiling(totalItems / (double)p.Size);
+        // Tính tổng số trang
+        var totalPages = (int)Math.Ceiling(totalItems / (double)size);
 
-        // 5. Kết cấu phản hồi
+        // Trả về kết quả đầy đủ
         var result = new
         {
-            totalItems,
+            items = users,
             totalPages,
-            page = p.Page,
-            size = p.Size,
-            hasPrevious = p.Page > 1,
-            hasNext = p.Page < totalPages,
-            items = users
+            totalItems,
+            page,
+            size,
+            hasPrevious = page > 1,
+            hasNext = page < totalPages
         };
 
         return Ok(result);
     }
+
 
     // GET: Lấy thông tin 1 người dùng
     [Authorize(Roles = "admin")]
