@@ -1,7 +1,10 @@
-public interface ITranslateService
+namespace BACKEND.Services
 {
-    /// <summary>
-    /// Dịch văn bản từ tiếng Anh sang tiếng Việt.
-    /// </summary>
-    Task<string> ToVietnamese(string text);
+    public interface ITranslateService
+    {
+        /// <summary>
+        /// Dịch văn bản tiếng Anh sang tiếng Việt.
+        /// </summary>
+        Task<string> ToVietnamese(string text);
+    }
 }

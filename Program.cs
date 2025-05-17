@@ -98,7 +98,17 @@ builder.WebHost.ConfigureKestrel(serverOptions =>
 {
     serverOptions.ListenAnyIP(5001);
 });
-builder.Services.AddHttpClient<ITranslateService, LibreTranslateService>();
+var rapidCfg = builder.Configuration.GetSection("RapidApi");
+var rapidHost = rapidCfg["Host"]!;
+var rapidKey = rapidCfg["Key"]!;
+builder.Services.AddHttpClient<ITranslateService, RapidApiTranslateService>(client =>
+{
+    client.BaseAddress = new Uri($"https://{rapidHost}");
+    client.DefaultRequestHeaders.Add("X-RapidAPI-Host", rapidHost);
+    client.DefaultRequestHeaders.Add("X-RapidAPI-Key", rapidKey);
+    client.DefaultRequestHeaders.Accept
+          .Add(new MediaTypeWithQualityHeaderValue("application/json"));
+});
 builder.Services.AddSingleton<PdfCoKeyManager>();
 builder.Services.AddHttpClient("PdfCo")
     .ConfigureHttpClient((sp, client) =>
