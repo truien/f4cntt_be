@@ -39,6 +39,25 @@ public partial class Document
 
     public string? Summarystatus { get; set; }
 
+    public string TtsStatus { get; set; } = null!;
+
+    public string SummaryTtsStatus { get; set; } = null!;
+
+    /// <summary>
+    /// Đường dẫn tới file audio TTS cho summary
+    /// </summary>
+    public string? SummaryTtsUrl { get; set; }
+
+    /// <summary>
+    /// Đường dẫn tới file audio TTS (MP3/OVA/etc)
+    /// </summary>
+    public string? TtsUrl { get; set; }
+
+    /// <summary>
+    /// Đường dẫn tới hình ảnh minh họa cho tài liệu
+    /// </summary>
+    public string? ImgUrl { get; set; }
+
     public virtual Author Author { get; set; } = null!;
 
     public virtual Category Category { get; set; } = null!;

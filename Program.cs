@@ -98,6 +98,16 @@ builder.WebHost.ConfigureKestrel(serverOptions =>
 {
     serverOptions.ListenAnyIP(5001);
 });
+
+var rapid = builder.Configuration.GetSection("RapidApi");
+builder.Services.AddHttpClient<ITtsService, TextToSpeechProService>(client =>
+{
+    client.BaseAddress = new Uri($"https://{rapid["TtsProHost"]}");
+    client.DefaultRequestHeaders.Add("X-RapidAPI-Key", rapid["Key"]!);
+    client.DefaultRequestHeaders.Add("X-RapidAPI-Host", rapid["TtsProHost"]!);
+});
+builder.Services.AddHostedService<TtsWorker>();
+// Đăng ký background worker cho TTS
 var rapidCfg = builder.Configuration.GetSection("RapidApi");
 var rapidHost = rapidCfg["Host"]!;
 var rapidKey = rapidCfg["Key"]!;
