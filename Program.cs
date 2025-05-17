@@ -92,7 +92,7 @@ builder.Services.AddCors(options =>
 
 builder.WebHost.ConfigureKestrel(serverOptions =>
 {
-    serverOptions.ListenAnyIP(5000);
+    serverOptions.ListenAnyIP(5001); // Changed from port 5000 to 5001
 });
 
 builder.Services.AddSingleton<PdfCoKeyManager>();

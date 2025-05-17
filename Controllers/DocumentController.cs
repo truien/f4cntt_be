@@ -69,8 +69,7 @@ public class DocumentController : ControllerBase
         await _context.SaveChangesAsync();
 
         return Accepted(new { message = "Tài liệu đã được upload thành công" });
-    }
-    // GET: Chi tiết tài liệu (public)
+    }    // GET: Chi tiết tài liệu (public)
     [HttpGet("{id}")]
     public async Task<IActionResult> GetDocumentById(int id)
     {
@@ -83,16 +82,17 @@ public class DocumentController : ControllerBase
 
         return Ok(new
         {
-            doc.Id,
-            doc.Title,
-            doc.Description,
-            doc.TotalPages,
-            doc.PreviewPageLimit,
-            doc.IsPremium,
-            Author = doc.Author?.Name,
-            Category = doc.Category?.Name,
-            Publisher = doc.Publisher?.Name,
-            PdfUrl = $"{Request.Scheme}://{Request.Host}{doc.PdfUrl}"
+            id = doc.Id,
+            title = doc.Title,
+            description = doc.Description,
+            author = doc.Author?.Name,
+            category = doc.Category?.Name,
+            publisher = doc.Publisher?.Name,
+            isApproved = doc.IsApproved,
+            isPremium = doc.IsPremium,
+            createdAt = doc.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ss"),
+            totalPages = doc.TotalPages,
+            pdfUrl = doc.PdfUrl != null ? $"{Request.Scheme}://{Request.Host}{doc.PdfUrl}" : null
         });
     }
 

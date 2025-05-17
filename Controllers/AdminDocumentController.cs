@@ -20,14 +20,16 @@ public class AdminDocumentController : ControllerBase
         _env = env;
     }
 
-    // GET: Lấy danh sách tài liệu (phân trang, tìm kiếm, sắp xếp)
+    // GET: Lấy danh sách tài liệu (phân trang, tìm kiếm, sắp xếp, lọc trạng thái)
+    [Authorize(Roles = "admin")]
     [HttpGet]
     public async Task<IActionResult> GetAll(
         [FromQuery] int page = 1,
         [FromQuery] int size = 10,
         [FromQuery] string? search = null,
         [FromQuery] string sortField = "createdAt",
-        [FromQuery] string sortDirection = "desc"
+        [FromQuery] string sortDirection = "desc",
+        [FromQuery] string? status = null // "1", "0", hoặc null = chờ duyệt
     )
     {
         var query = _context.Documents
@@ -35,6 +37,14 @@ public class AdminDocumentController : ControllerBase
             .Include(d => d.Category)
             .Include(d => d.Publisher)
             .AsQueryable();
+
+        // Lọc theo trạng thái IsApproved
+        if (status == "1")
+            query = query.Where(d => d.IsApproved == true);
+        else if (status == "0")
+            query = query.Where(d => d.IsApproved == false);
+        else
+            query = query.Where(d => d.IsApproved == null);
 
         // Tìm kiếm theo tiêu đề, mô tả hoặc tên tác giả
         if (!string.IsNullOrWhiteSpace(search))
@@ -44,9 +54,10 @@ public class AdminDocumentController : ControllerBase
                 d.Title.Contains(search) ||
                 d.Description.Contains(search) ||
                 d.Author.Name.Contains(search));
-#pragma warning restore CS8602 // Dereference of a possibly null reference.
+#pragma warning restore CS8602
         }
 
+        // Sắp xếp động
         bool asc = sortDirection.Equals("asc", StringComparison.OrdinalIgnoreCase);
         query = sortField.ToLower() switch
         {
