@@ -37,6 +37,8 @@ public partial class Document
 
     public string? ConversionJobId { get; set; }
 
+    public string? Summarystatus { get; set; }
+
     public virtual Author Author { get; set; } = null!;
 
     public virtual Category Category { get; set; } = null!;

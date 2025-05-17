@@ -9,6 +9,10 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using VNPAY.NET;
 using System.Net.Http.Headers;
 using BACKEND.Utilities;
+using BACKEND.Services;
+using BACKEND.Workers;
+using Azure.AI.Translation.Text;
+using Azure;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<EmailService>();
@@ -92,17 +96,25 @@ builder.Services.AddCors(options =>
 
 builder.WebHost.ConfigureKestrel(serverOptions =>
 {
-    serverOptions.ListenAnyIP(5001); // Changed from port 5000 to 5001
+    serverOptions.ListenAnyIP(5001);
 });
-
+builder.Services.AddHttpClient<ITranslateService, LibreTranslateService>();
 builder.Services.AddSingleton<PdfCoKeyManager>();
-
 builder.Services.AddHttpClient("PdfCo")
     .ConfigureHttpClient((sp, client) =>
     {
         client.BaseAddress = new Uri("https://api.pdf.co/v1/");
     });
+var pdfAiCfg = builder.Configuration.GetSection("PdfAi");
+builder.Services.AddHttpClient<IPdfAiService, PdfAiService>(client =>
+{
+    client.BaseAddress = new Uri(pdfAiCfg["BaseUrl"]!);
+    client.DefaultRequestHeaders.Add("X-API-Key", pdfAiCfg["ApiKey"]!);
+    client.DefaultRequestHeaders.Accept
+            .Add(new MediaTypeWithQualityHeaderValue("application/json"));
+});
 builder.Services.AddHostedService<PdfConversionWorker>();
+builder.Services.AddHostedService<SummaryWorker>();
 builder.Services.AddScoped<IVnpay, Vnpay>();
 builder.Services.AddAuthorization();
 builder.Services.AddControllers();
