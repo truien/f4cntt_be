@@ -161,11 +161,16 @@ public class AdminDocumentController : ControllerBase
             doc.PreviewPageLimit,
             doc.Status,
             doc.IsPremium,
-            Author = doc.Author.Name,
-            Category = doc.Category.Name,
-            Publisher = doc.Publisher.Name,
+            Author = doc.Author?.Name,
+            Category = doc.Category?.Name,
+            Publisher = doc.Publisher?.Name,
             doc.CreatedAt,
-            pdf = $"{Request.Scheme}://{Request.Host}/{doc.PdfUrl}",
+            pdf = !string.IsNullOrEmpty(doc.PdfUrl) ? $"{Request.Scheme}://{Request.Host}{doc.PdfUrl}" : null,
+            doc.ConversionStatus,
+            Summaries = doc.DocumentSummaries?.Select(s => new
+            {
+            s.SummaryText
+            }).ToList()
         });
     }
 

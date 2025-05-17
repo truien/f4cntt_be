@@ -46,13 +46,16 @@ public partial class DBContext : DbContext
 
     public virtual DbSet<Setting> Settings { get; set; }
 
+    public virtual DbSet<Slider> Sliders { get; set; }
+
     public virtual DbSet<Transaction> Transactions { get; set; }
 
     public virtual DbSet<User> Users { get; set; }
 
     public virtual DbSet<UserPremium> UserPremiums { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
-    {   
+    {
         modelBuilder
             .UseCollation("latin1_swedish_ci")
             .HasCharSet("latin1");
@@ -184,9 +187,6 @@ public partial class DBContext : DbContext
             entity.Property(e => e.FileUrl)
                 .HasMaxLength(500)
                 .HasColumnName("file_url");
-
-            entity.Property(e => e.Status).HasColumnName("status");
-
             entity.Property(e => e.IsPremium).HasColumnName("is_premium");
             entity.Property(e => e.PdfUrl)
                 .HasMaxLength(500)
@@ -201,6 +201,9 @@ public partial class DBContext : DbContext
             entity.Property(e => e.Status)
                 .HasColumnType("int(11)")
                 .HasColumnName("status");
+            entity.Property(e => e.Summarystatus)
+                .HasMaxLength(50)
+                .HasColumnName("summarystatus");
             entity.Property(e => e.Title)
                 .HasMaxLength(300)
                 .HasColumnName("title");
@@ -583,6 +586,56 @@ public partial class DBContext : DbContext
             entity.Property(e => e.Value)
                 .HasMaxLength(500)
                 .HasColumnName("value");
+        });
+
+        modelBuilder.Entity<Slider>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("PRIMARY");
+
+            entity
+                .ToTable("sliders", tb => tb.HasComment("Bảng lưu thông tin các slide trên trang chủ"))
+                .HasCharSet("utf8mb4")
+                .UseCollation("utf8mb4_unicode_ci");
+
+            entity.Property(e => e.Id)
+                .HasColumnType("int(11)")
+                .HasColumnName("id");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasComment("Thời điểm tạo")
+                .HasColumnType("datetime")
+                .HasColumnName("created_at");
+            entity.Property(e => e.Description)
+                .HasComment("Mô tả ngắn (nếu có)")
+                .HasColumnType("text")
+                .HasColumnName("description");
+            entity.Property(e => e.ImageUrl)
+                .HasMaxLength(500)
+                .HasComment("Đường dẫn đến ảnh")
+                .HasColumnName("image_url");
+            entity.Property(e => e.IsActive)
+                .IsRequired()
+                .HasDefaultValueSql("'1'")
+                .HasComment("1=hiển thị, 0=ẩn")
+                .HasColumnName("is_active");
+            entity.Property(e => e.LinkUrl)
+                .HasMaxLength(500)
+                .HasComment("URL khi click vào slide")
+                .HasColumnName("link_url");
+            entity.Property(e => e.SortOrder)
+                .HasComment("Thứ tự hiển thị")
+                .HasColumnType("int(11)")
+                .HasColumnName("sort_order");
+            entity.Property(e => e.Title)
+                .HasMaxLength(255)
+                .HasComment("Tiêu đề (nếu có)")
+                .HasColumnName("title");
+            entity.Property(e => e.UpdatedAt)
+                .ValueGeneratedOnAddOrUpdate()
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasComment("Thời điểm cập nhật")
+                .HasColumnType("datetime")
+                .HasColumnName("updated_at");
         });
 
         modelBuilder.Entity<Transaction>(entity =>

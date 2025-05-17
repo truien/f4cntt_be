@@ -42,7 +42,7 @@ public class PdfConversionWorker : BackgroundService
 
             // Lấy tất cả document mới (Pending)
             var pendings = await ctx.Documents
-                .Where(d => d.ConversionStatus == "Pending")
+                .Where(d => d.ConversionStatus == "Pending" && d.Status == 1)
                 .ToListAsync(stoppingToken);
 
             foreach (var doc in pendings)
