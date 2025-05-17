@@ -50,20 +50,20 @@ namespace BACKEND.Workers
                         doc.Summarystatus = "Working";
                         ctx.Update(doc);
                         await ctx.SaveChangesAsync(stoppingToken);
-
                         // 2. Đọc file bytes
                         var wwwRoot = Path.GetFullPath("wwwroot");
 #pragma warning disable CS8602 
                         var relPath = doc.PdfUrl.TrimStart('/')
-                                         .Replace('/', Path.DirectorySeparatorChar);
+                                            .Replace('/', Path.DirectorySeparatorChar);
 #pragma warning restore CS8602 
                         var fullPath = Path.Combine(wwwRoot, relPath);
                         var fileBytes = await File.ReadAllBytesAsync(fullPath, stoppingToken);
                         var fileName = Path.GetFileName(fullPath);
-
                         // 3. Upload lên PDF.ai → lấy docId
                         var docId = await _pdfAi.UploadFileAsync(fileBytes, fileName);
 
+                        doc.ConversionJobId = docId;  
+                        ctx.Update(doc);
                         // 4. Gọi summary với docId
                         var summaryText = await _pdfAi.SummarizeAsync(docId);
 
@@ -84,7 +84,7 @@ namespace BACKEND.Workers
                     }
                     catch (Exception ex)
                     {
-                        doc.Summarystatus ="Error";
+                        doc.Summarystatus = "Error";
                         ctx.Update(doc);
                         await ctx.SaveChangesAsync(stoppingToken);
                         _logger.LogError(ex, "Error summarizing document {Id}", doc.Id);

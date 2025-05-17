@@ -187,6 +187,10 @@ public partial class DBContext : DbContext
             entity.Property(e => e.FileUrl)
                 .HasMaxLength(500)
                 .HasColumnName("file_url");
+            entity.Property(e => e.ImgUrl)
+                .HasMaxLength(500)
+                .HasComment("Đường dẫn tới hình ảnh minh họa cho tài liệu")
+                .HasColumnName("img_url");
             entity.Property(e => e.IsPremium).HasColumnName("is_premium");
             entity.Property(e => e.PdfUrl)
                 .HasMaxLength(500)
@@ -201,6 +205,14 @@ public partial class DBContext : DbContext
             entity.Property(e => e.Status)
                 .HasColumnType("int(11)")
                 .HasColumnName("status");
+            entity.Property(e => e.SummaryTtsStatus)
+                .HasDefaultValueSql("'Pending'")
+                .HasColumnType("enum('Pending','Working','Success','Error')")
+                .HasColumnName("summary_tts_status");
+            entity.Property(e => e.SummaryTtsUrl)
+                .HasMaxLength(500)
+                .HasComment("Đường dẫn tới file audio TTS cho summary")
+                .HasColumnName("summary_tts_url");
             entity.Property(e => e.Summarystatus)
                 .HasMaxLength(50)
                 .HasColumnName("summarystatus");
@@ -211,6 +223,14 @@ public partial class DBContext : DbContext
                 .HasDefaultValueSql("'1'")
                 .HasColumnType("int(11)")
                 .HasColumnName("total_pages");
+            entity.Property(e => e.TtsStatus)
+                .HasDefaultValueSql("'Pending'")
+                .HasColumnType("enum('Pending','Working','Success','Error')")
+                .HasColumnName("tts_status");
+            entity.Property(e => e.TtsUrl)
+                .HasMaxLength(500)
+                .HasComment("Đường dẫn tới file audio TTS (MP3/OVA/etc)")
+                .HasColumnName("tts_url");
 
             entity.HasOne(d => d.Author).WithMany(p => p.Documents)
                 .HasForeignKey(d => d.AuthorId)
