@@ -21,7 +21,7 @@ public partial class Document
 
     public int PublisherId { get; set; }
 
-    public bool IsApproved { get; set; }
+    public int Status { get; set; }
 
     public int CreatedBy { get; set; }
 

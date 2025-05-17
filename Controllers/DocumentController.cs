@@ -59,7 +59,7 @@ public class DocumentController : ControllerBase
             PublisherId = req.PublisherId,
             CategoryId = req.CategoryId,
             CreatedBy = userId,
-            IsApproved = req.IsApproved,
+            Status = req.Status,
             IsPremium = req.IsPremium,
             FileUrl = $"/uploads/originals/{originalName}",
             // không set ConversionJobId,
@@ -69,8 +69,7 @@ public class DocumentController : ControllerBase
         await _context.SaveChangesAsync();
 
         return Accepted(new { message = "Tài liệu đã được upload thành công" });
-    }
-    // GET: Chi tiết tài liệu (public)
+    }    // GET: Chi tiết tài liệu (public)
     [HttpGet("{id}")]
     public async Task<IActionResult> GetDocumentById(int id)
     {
@@ -78,21 +77,22 @@ public class DocumentController : ControllerBase
             .Include(d => d.Author)
             .Include(d => d.Category)
             .Include(d => d.Publisher)
-            .FirstOrDefaultAsync(d => d.Id == id && d.IsApproved == true);
+            .FirstOrDefaultAsync(d => d.Id == id && d.Status == 1);
         if (doc == null) return NotFound();
 
         return Ok(new
         {
-            doc.Id,
-            doc.Title,
-            doc.Description,
-            doc.TotalPages,
-            doc.PreviewPageLimit,
-            doc.IsPremium,
-            Author = doc.Author?.Name,
-            Category = doc.Category?.Name,
-            Publisher = doc.Publisher?.Name,
-            PdfUrl = $"{Request.Scheme}://{Request.Host}{doc.PdfUrl}"
+            id = doc.Id,
+            title = doc.Title,
+            description = doc.Description,
+            author = doc.Author?.Name,
+            category = doc.Category?.Name,
+            publisher = doc.Publisher?.Name,
+            Status = doc.Status,
+            isPremium = doc.IsPremium,
+            createdAt = doc.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ss"),
+            totalPages = doc.TotalPages,
+            pdfUrl = doc.PdfUrl != null ? $"{Request.Scheme}://{Request.Host}{doc.PdfUrl}" : null
         });
     }
 
@@ -101,7 +101,7 @@ public class DocumentController : ControllerBase
     public async Task<IActionResult> ViewPdf(int id)
     {
         var doc = await _context.Documents.FindAsync(id);
-        if (doc == null || !doc.IsApproved) return NotFound();
+        if (doc == null || doc.Status == 0) return NotFound();
 
         var userId = GetUserId();
         var hasPremium = await HasPremiumAccess(userId);
@@ -120,7 +120,7 @@ public class DocumentController : ControllerBase
     public async Task<IActionResult> Download(int id)
     {
         var doc = await _context.Documents.FindAsync(id);
-        if (doc == null || !doc.IsApproved) return NotFound();
+        if (doc == null || doc.Status == 0 || doc.Status == 2) return NotFound();
 
         var userId = GetUserId();
         var hasPremium = await HasPremiumAccess(userId);

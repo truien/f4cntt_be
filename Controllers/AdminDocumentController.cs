@@ -20,21 +20,30 @@ public class AdminDocumentController : ControllerBase
         _env = env;
     }
 
-    // GET: Lấy danh sách tài liệu (phân trang, tìm kiếm, sắp xếp)
+    [Authorize(Roles = "admin")]
     [HttpGet]
     public async Task<IActionResult> GetAll(
-        [FromQuery] int page = 1,
-        [FromQuery] int size = 10,
-        [FromQuery] string? search = null,
-        [FromQuery] string sortField = "createdAt",
-        [FromQuery] string sortDirection = "desc"
-    )
+      [FromQuery] int page = 1,
+      [FromQuery] int size = 10,
+      [FromQuery] string? search = null,
+      [FromQuery] string sortField = "createdAt",
+      [FromQuery] string sortDirection = "desc",
+      [FromQuery] string? status = null // frontend gửi 0=Pending, 1=Approved, 2=Rejected
+  )
     {
         var query = _context.Documents
             .Include(d => d.Author)
             .Include(d => d.Category)
             .Include(d => d.Publisher)
             .AsQueryable();
+
+        // Lọc theo trạng thái phê duyệt: 1=Pending, 2=Approved, 3=Rejected
+        if (status == "0")
+            query = query.Where(d => d.Status == 0); // Chờ duyệt
+        else if (status == "1")
+            query = query.Where(d => d.Status == 1); // Đã duyệt
+        else if (status == "2")
+            query = query.Where(d => d.Status == 2); // Đã từ chối
 
         // Tìm kiếm theo tiêu đề, mô tả hoặc tên tác giả
         if (!string.IsNullOrWhiteSpace(search))
@@ -44,15 +53,16 @@ public class AdminDocumentController : ControllerBase
                 d.Title.Contains(search) ||
                 d.Description.Contains(search) ||
                 d.Author.Name.Contains(search));
-#pragma warning restore CS8602 // Dereference of a possibly null reference.
+#pragma warning restore CS8602
         }
 
+        // Sắp xếp động
         bool asc = sortDirection.Equals("asc", StringComparison.OrdinalIgnoreCase);
         query = sortField.ToLower() switch
         {
             "title" => asc ? query.OrderBy(d => d.Title) : query.OrderByDescending(d => d.Title),
             "createdat" => asc ? query.OrderBy(d => d.CreatedAt) : query.OrderByDescending(d => d.CreatedAt),
-            "isapproved" => asc ? query.OrderBy(d => d.IsApproved) : query.OrderByDescending(d => d.IsApproved),
+            "status" => asc ? query.OrderBy(d => d.Status) : query.OrderByDescending(d => d.Status),
             "author" => asc ? query.OrderBy(d => d.Author.Name) : query.OrderByDescending(d => d.Author.Name),
             _ => query.OrderByDescending(d => d.CreatedAt),
         };
@@ -71,7 +81,7 @@ public class AdminDocumentController : ControllerBase
                 Author = d.Author.Name,
                 Category = d.Category.Name,
                 Publisher = d.Publisher.Name,
-                d.IsApproved,
+                d.Status,
                 d.IsPremium,
                 d.CreatedAt,
                 d.TotalPages
@@ -88,6 +98,45 @@ public class AdminDocumentController : ControllerBase
             hasPrevious = page > 1,
             hasNext = page < totalPages
         });
+    }
+
+    [Authorize(Roles = "admin")]
+    [HttpPut("{id}/status")]
+    public async Task<IActionResult> UpdateApprovalStatus(int id, [FromBody] UpdateStatusRequest input)
+    {
+        var doc = await _context.Documents.FindAsync(id);
+        if (doc == null)
+            return NotFound(new { message = "Không tìm thấy tài liệu." });
+
+        // Map từ client input: 0 = pending, 1 = approved, 2 = rejected
+        int mappedStatus = input.Status switch
+        {
+            0 => 0, // pending
+            1 => 1, // approved
+            2 => 2, // rejected
+            _ => -1
+        };
+
+        if (mappedStatus == -1)
+            return BadRequest(new { message = "Giá trị Status không hợp lệ. (0: Chờ duyệt, 1: Đã duyệt, 2: Từ chối)" });
+
+        doc.Status = mappedStatus;
+        await _context.SaveChangesAsync();
+
+        string statusMessage = input.Status switch
+        {
+            0 => "Đã chuyển trạng thái sang CHỜ DUYỆT.",
+            1 => "Đã PHÊ DUYỆT tài liệu.",
+            2 => "Đã TỪ CHỐI tài liệu.",
+            _ => "Cập nhật trạng thái."
+        };
+
+        return Ok(new { message = statusMessage });
+    }
+
+    public class UpdateStatusRequest
+    {
+        public int Status { get; set; } // 0=pending, 1=approved, 2=rejected
     }
 
     // GET: Chi tiết 1 tài liệu
@@ -110,7 +159,7 @@ public class AdminDocumentController : ControllerBase
             doc.Description,
             doc.TotalPages,
             doc.PreviewPageLimit,
-            doc.IsApproved,
+            doc.Status,
             doc.IsPremium,
             Author = doc.Author.Name,
             Category = doc.Category.Name,
@@ -184,7 +233,7 @@ public class AdminDocumentController : ControllerBase
         var doc = await _context.Documents.FindAsync(id);
         if (doc == null) return NotFound();
 
-        doc.IsApproved = true;
+        doc.Status = 1;
         await _context.SaveChangesAsync();
         return Ok(new { message = "Đã duyệt tài liệu." });
     }
@@ -196,7 +245,7 @@ public class AdminDocumentController : ControllerBase
         var doc = await _context.Documents.FindAsync(id);
         if (doc == null) return NotFound();
 
-        doc.IsApproved = false;
+        doc.Status = 2;
         await _context.SaveChangesAsync();
         return Ok(new { message = "Đã từ chối tài liệu." });
     }
