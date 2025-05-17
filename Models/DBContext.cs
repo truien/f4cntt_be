@@ -51,9 +51,8 @@ public partial class DBContext : DbContext
     public virtual DbSet<User> Users { get; set; }
 
     public virtual DbSet<UserPremium> UserPremiums { get; set; }
-
     protected override void OnModelCreating(ModelBuilder modelBuilder)
-    {
+    {   
         modelBuilder
             .UseCollation("latin1_swedish_ci")
             .HasCharSet("latin1");
@@ -185,7 +184,6 @@ public partial class DBContext : DbContext
             entity.Property(e => e.FileUrl)
                 .HasMaxLength(500)
                 .HasColumnName("file_url");
-            entity.Property(e => e.IsApproved).HasColumnName("is_approved");
             entity.Property(e => e.IsPremium).HasColumnName("is_premium");
             entity.Property(e => e.PdfUrl)
                 .HasMaxLength(500)
@@ -197,6 +195,9 @@ public partial class DBContext : DbContext
             entity.Property(e => e.PublisherId)
                 .HasColumnType("int(11)")
                 .HasColumnName("publisher_id");
+            entity.Property(e => e.Status)
+                .HasColumnType("int(11)")
+                .HasColumnName("status");
             entity.Property(e => e.Title)
                 .HasMaxLength(300)
                 .HasColumnName("title");
