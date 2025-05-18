@@ -27,6 +27,11 @@ public partial class User
 
     public string? Avatar { get; set; }
 
+    /// <summary>
+    /// Tổng điểm hiện có của user
+    /// </summary>
+    public int Score { get; set; }
+
     public virtual ICollection<Comment> Comments { get; set; } = new List<Comment>();
 
     public virtual ICollection<Document> Documents { get; set; } = new List<Document>();
@@ -41,11 +46,11 @@ public partial class User
 
     public virtual ICollection<PaymentTransaction> PaymentTransactions { get; set; } = new List<PaymentTransaction>();
 
+    public virtual ICollection<PointTransaction> PointTransactions { get; set; } = new List<PointTransaction>();
+
     public virtual ICollection<Rating> Ratings { get; set; } = new List<Rating>();
 
     public virtual Role Role { get; set; } = null!;
 
     public virtual ICollection<Transaction> Transactions { get; set; } = new List<Transaction>();
-
-    public virtual ICollection<UserPremium> UserPremia { get; set; } = new List<UserPremium>();
 }
