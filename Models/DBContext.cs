@@ -36,7 +36,7 @@ public partial class DBContext : DbContext
 
     public virtual DbSet<PaymentTransaction> PaymentTransactions { get; set; }
 
-    public virtual DbSet<PremiumPackage> PremiumPackages { get; set; }
+    public virtual DbSet<PointTransaction> PointTransactions { get; set; }
 
     public virtual DbSet<Publisher> Publishers { get; set; }
 
@@ -52,7 +52,9 @@ public partial class DBContext : DbContext
 
     public virtual DbSet<User> Users { get; set; }
 
-    public virtual DbSet<UserPremium> UserPremiums { get; set; }
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+#warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
+        => optionsBuilder.UseMySql("server=103.97.126.29;database=yoxdhlgk_senselib;user=yoxdhlgk_root;password=admin123", Microsoft.EntityFrameworkCore.ServerVersion.Parse("5.7.41-mysql"));
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -195,6 +197,10 @@ public partial class DBContext : DbContext
             entity.Property(e => e.PdfUrl)
                 .HasMaxLength(500)
                 .HasColumnName("pdf_url");
+            entity.Property(e => e.PointCost)
+                .HasComment("Số điểm cần có để tải tài liệu này")
+                .HasColumnType("int(11)")
+                .HasColumnName("point_cost");
             entity.Property(e => e.PreviewPageLimit)
                 .HasDefaultValueSql("'1'")
                 .HasColumnType("int(11)")
@@ -446,9 +452,10 @@ public partial class DBContext : DbContext
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
 
-            entity.ToTable("payment_transactions");
-
-            entity.HasIndex(e => e.PackageId, "package_id");
+            entity
+                .ToTable("payment_transactions")
+                .HasCharSet("utf8mb4")
+                .UseCollation("utf8mb4_unicode_ci");
 
             entity.HasIndex(e => e.UserId, "user_id");
 
@@ -462,14 +469,11 @@ public partial class DBContext : DbContext
                 .HasDefaultValueSql("CURRENT_TIMESTAMP")
                 .HasColumnType("datetime")
                 .HasColumnName("created_at");
-            entity.Property(e => e.PackageId)
-                .HasColumnType("int(11)")
-                .HasColumnName("package_id");
             entity.Property(e => e.PaymentMethod)
                 .HasMaxLength(50)
                 .HasColumnName("payment_method");
             entity.Property(e => e.ResponseData)
-                .HasColumnType("text")
+                .HasColumnType("mediumtext")
                 .HasColumnName("response_data");
             entity.Property(e => e.Status)
                 .HasMaxLength(50)
@@ -482,38 +486,50 @@ public partial class DBContext : DbContext
                 .HasColumnType("int(11)")
                 .HasColumnName("user_id");
 
-            entity.HasOne(d => d.Package).WithMany(p => p.PaymentTransactions)
-                .HasForeignKey(d => d.PackageId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("payment_transactions_ibfk_2");
-
             entity.HasOne(d => d.User).WithMany(p => p.PaymentTransactions)
                 .HasForeignKey(d => d.UserId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("payment_transactions_ibfk_1");
         });
 
-        modelBuilder.Entity<PremiumPackage>(entity =>
+        modelBuilder.Entity<PointTransaction>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
 
-            entity.ToTable("premium_packages");
+            entity
+                .ToTable("point_transactions")
+                .HasCharSet("utf8mb4")
+                .UseCollation("utf8mb4_unicode_ci");
+
+            entity.HasIndex(e => e.UserId, "idx_pt_user");
 
             entity.Property(e => e.Id)
                 .HasColumnType("int(11)")
                 .HasColumnName("id");
-            entity.Property(e => e.DurationDays)
+            entity.Property(e => e.ChangeAmount)
+                .HasComment("+ là cộng, - là trừ")
                 .HasColumnType("int(11)")
-                .HasColumnName("duration_days");
-            entity.Property(e => e.MaxDownloads)
+                .HasColumnName("change_amount");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("datetime")
+                .HasColumnName("created_at");
+            entity.Property(e => e.Reason)
+                .HasMaxLength(255)
+                .HasComment("Lý do (download, approval, recharge...)")
+                .HasColumnName("reason");
+            entity.Property(e => e.RelatedId)
+                .HasComment("ID liên quan (document_id, transaction_id, v.v.)")
                 .HasColumnType("int(11)")
-                .HasColumnName("max_downloads");
-            entity.Property(e => e.Name)
-                .HasMaxLength(100)
-                .HasColumnName("name");
-            entity.Property(e => e.Price)
-                .HasPrecision(10, 2)
-                .HasColumnName("price");
+                .HasColumnName("related_id");
+            entity.Property(e => e.UserId)
+                .HasComment("Tham chiếu tới users.id")
+                .HasColumnType("int(11)")
+                .HasColumnName("user_id");
+
+            entity.HasOne(d => d.User).WithMany(p => p.PointTransactions)
+                .HasForeignKey(d => d.UserId)
+                .HasConstraintName("fk_pt_user");
         });
 
         modelBuilder.Entity<Publisher>(entity =>
@@ -734,6 +750,10 @@ public partial class DBContext : DbContext
             entity.Property(e => e.RoleId)
                 .HasColumnType("int(11)")
                 .HasColumnName("role_id");
+            entity.Property(e => e.Score)
+                .HasComment("Tổng điểm hiện có của user")
+                .HasColumnType("int(11)")
+                .HasColumnName("score");
             entity.Property(e => e.Username)
                 .HasMaxLength(191)
                 .HasColumnName("username");
@@ -742,47 +762,6 @@ public partial class DBContext : DbContext
                 .HasForeignKey(d => d.RoleId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_users_role");
-        });
-
-        modelBuilder.Entity<UserPremium>(entity =>
-        {
-            entity.HasKey(e => e.Id).HasName("PRIMARY");
-
-            entity.ToTable("user_premiums");
-
-            entity.HasIndex(e => e.PackageId, "package_id");
-
-            entity.HasIndex(e => e.UserId, "user_id");
-
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.DownloadsUsed)
-                .HasDefaultValueSql("'0'")
-                .HasColumnType("int(11)")
-                .HasColumnName("downloads_used");
-            entity.Property(e => e.EndDate)
-                .HasColumnType("datetime")
-                .HasColumnName("end_date");
-            entity.Property(e => e.PackageId)
-                .HasColumnType("int(11)")
-                .HasColumnName("package_id");
-            entity.Property(e => e.StartDate)
-                .HasColumnType("datetime")
-                .HasColumnName("start_date");
-            entity.Property(e => e.UserId)
-                .HasColumnType("int(11)")
-                .HasColumnName("user_id");
-
-            entity.HasOne(d => d.Package).WithMany(p => p.UserPremia)
-                .HasForeignKey(d => d.PackageId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("user_premiums_ibfk_2");
-
-            entity.HasOne(d => d.User).WithMany(p => p.UserPremia)
-                .HasForeignKey(d => d.UserId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("user_premiums_ibfk_1");
         });
 
         OnModelCreatingPartial(modelBuilder);

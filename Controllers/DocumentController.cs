@@ -207,7 +207,7 @@ public class DocumentController : ControllerBase
         });
     }
 
-    // GET: Xem tài liệu PDF (chỉ xem preview nếu không premium)
+    // GET: Xem tài liệu PDF 
     [HttpGet("view/{id}")]
     public async Task<IActionResult> ViewPdf(int id)
     {
@@ -215,13 +215,10 @@ public class DocumentController : ControllerBase
         if (doc == null || doc.Status == 0) return NotFound();
 
         var userId = GetUserId();
-        var hasPremium = await HasPremiumAccess(userId);
-        int? allowedPages = hasPremium ? doc.TotalPages : doc.PreviewPageLimit;
 
         return Ok(new
         {
             PdfUrl = $"{Request.Scheme}://{Request.Host}{doc.PdfUrl}",
-            AllowedPages = allowedPages
         });
     }
 
@@ -230,15 +227,56 @@ public class DocumentController : ControllerBase
     [HttpGet("download/{id}")]
     public async Task<IActionResult> Download(int id)
     {
+        // 1. Lấy document
         var doc = await _context.Documents.FindAsync(id);
-        if (doc == null || doc.Status == 0 || doc.Status == 2) return NotFound();
+        if (doc == null || doc.Status != 1)
+            return NotFound();
 
-        var userId = GetUserId();
-        var hasPremium = await HasPremiumAccess(userId);
-        if (!hasPremium && doc.IsPremium)
-            return Forbid("Bạn cần mua gói Premium để tải tài liệu này.");
+        // 2. Tính điểm cần thiết
+        int cost = doc.IsPremium ? 100 : 0;
 
-        // Log download
+        // 3. Lấy user hiện tại
+        int userId = GetUserId();
+        var user = await _context.Users.FindAsync(userId);
+
+        // 4. Nếu premium và không đủ điểm thì chặn
+#pragma warning disable CS8602 // Dereference of a possibly null reference.
+        if (cost > 0 && user.Score < cost)
+            return Forbid($"Bạn cần ít nhất {cost} điểm để tải tài liệu premium này.");
+#pragma warning restore CS8602 // Dereference of a possibly null reference.
+
+        var filePdf = $"{Request.Scheme}://{Request.Host}{doc.PdfUrl}";
+        var fileUrl = $"{Request.Scheme}://{Request.Host}{doc.PdfUrl}";
+
+        // 6. Cập nhật điểm
+        if (cost > 0)
+        {
+            // Trừ điểm của user
+#pragma warning disable CS8602 // Dereference of a possibly null reference.
+            user.Score -= cost;
+#pragma warning restore CS8602 // Dereference of a possibly null reference.
+            _context.PointTransactions.Add(new PointTransaction
+            {
+                UserId = userId,
+                ChangeAmount = -cost,
+                Reason = "download_premium",
+                RelatedId = doc.Id
+            });
+        }
+
+        // Cộng điểm cho tác giả
+        var author = await _context.Users.FindAsync(doc.CreatedBy);
+        if (author != null && cost > 0)
+        {
+            author.Score += cost;
+            _context.PointTransactions.Add(new PointTransaction
+            {
+                UserId = author.Id,
+                ChangeAmount = cost,
+                Reason = "reward_download",
+                RelatedId = doc.Id
+            });
+        }
         _context.Downloads.Add(new Download
         {
             UserId = userId,
@@ -246,25 +284,17 @@ public class DocumentController : ControllerBase
             DownloadedAt = DateTime.UtcNow
         });
 
-        // Cập nhật số lượt tải của gói premium
-        var userPremium = await _context.UserPremiums
-            .Include(p => p.Package)
-            .Where(p => p.UserId == userId && p.EndDate >= DateTime.UtcNow)
-            .FirstOrDefaultAsync();
-
-        if (userPremium != null)
-        {
-            userPremium.DownloadsUsed++;
-        }
-
         await _context.SaveChangesAsync();
 
+        // 8. Trả về kết quả
         return Ok(new
         {
-            message = "Tải file thành công",
-            FileUrl = $"{Request.Scheme}://{Request.Host}{doc.FileUrl}"
+            message = "Tải tài liệu thành công",
+            fileUrl,
+            filePdf,
         });
     }
+
 
     // POST: Đánh giá tài liệu
     [Authorize]
@@ -372,13 +402,4 @@ public class DocumentController : ControllerBase
         return claim != null ? int.Parse(claim.Value) : 0;
     }
 
-    private async Task<bool> HasPremiumAccess(int userId)
-    {
-        var now = DateTime.UtcNow;
-        return await _context.UserPremiums.AnyAsync(p =>
-            p.UserId == userId &&
-            p.StartDate <= now &&
-            p.EndDate >= now &&
-            p.DownloadsUsed < p.Package.MaxDownloads);
-    }
 }

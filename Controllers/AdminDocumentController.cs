@@ -116,17 +116,41 @@ public class AdminDocumentController : ControllerBase
             2 => 2, // rejected
             _ => -1
         };
-
         if (mappedStatus == -1)
             return BadRequest(new { message = "Giá trị Status không hợp lệ. (0: Chờ duyệt, 1: Đã duyệt, 2: Từ chối)" });
 
+        // 1. Cập nhật status
         doc.Status = mappedStatus;
         await _context.SaveChangesAsync();
 
-        string statusMessage = input.Status switch
+        // 2. Nếu vừa phê duyệt => cộng 100 coin cho tác giả
+        if (mappedStatus == 1)
+        {
+            var author = await _context.Users.FindAsync(doc.CreatedBy);
+            if (author != null)
+            {
+                const int reward = 100;
+                author.Score += reward;
+
+                // Nếu có bảng PointTransactions, ghi thêm lịch sử
+                _context.PointTransactions.Add(new PointTransaction
+                {
+                    UserId = author.Id,
+                    ChangeAmount = reward,
+                    Reason = "approval_reward",
+                    RelatedId = doc.Id,
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                await _context.SaveChangesAsync();
+            }
+        }
+
+        // 3. Chuẩn bị message trả về
+        string statusMessage = mappedStatus switch
         {
             0 => "Đã chuyển trạng thái sang CHỜ DUYỆT.",
-            1 => "Đã PHÊ DUYỆT tài liệu.",
+            1 => "Đã PHÊ DUYỆT tài liệu và tác giả được +100 coins.",
             2 => "Đã TỪ CHỐI tài liệu.",
             _ => "Cập nhật trạng thái."
         };
@@ -169,7 +193,7 @@ public class AdminDocumentController : ControllerBase
             doc.ConversionStatus,
             Summaries = doc.DocumentSummaries?.Select(s => new
             {
-            s.SummaryText
+                s.SummaryText
             }).ToList()
         });
     }
