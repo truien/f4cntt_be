@@ -75,6 +75,7 @@ public class AdminUserController : ControllerBase
                 u.Email,
                 u.FullName,
                 u.CreatedAt,
+                IsBinding = _context.Documents.Any(d => d.CreatedBy == u.Id),
                 Role = u.Role.RoleName,
                 u.IsActive,
                 Avatar = !string.IsNullOrEmpty(u.Avatar)
@@ -332,6 +333,83 @@ public class AdminUserController : ControllerBase
 
         return Ok(roles);
     }
+    // Lấy danh sách tất cả người dùng đã thanh toán
+    [HttpGet("paid-users")]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> GetPaidUsers([FromQuery] PaidUsersQuery q)
+    {
+        // 1) Chuẩn bị stats: nhóm payment theo UserId
+        var stats = _context.PaymentTransactions
+            .GroupBy(pt => pt.UserId)
+            .Select(g => new
+            {
+                UserId = g.Key,
+                TotalAmount = g.Sum(pt => pt.Amount),
+                DaysCount = g
+                    .Select(pt => pt.CreatedAt)
+                    .Distinct()
+                    .Count()
+            });
+
+        // 2) Join users với stats, loại trừ admin
+        var baseQ = from u in _context.Users.AsNoTracking()
+                    join s in stats on u.Id equals s.UserId
+                    where u.RoleId != 1
+                    select new
+                    {
+                        u.Id,
+                        u.Username,
+                        u.Email,
+                        u.FullName,
+                        u.CreatedAt,
+                        u.IsActive,
+                        TotalAmount = s.TotalAmount,
+                        DaysCount = s.DaysCount
+                    };
+
+        // 3) Tìm kiếm term
+        if (!string.IsNullOrWhiteSpace(q.Term))
+        {
+            var term = q.Term.Trim().ToLower();
+            baseQ = baseQ.Where(x =>
+                x.Username.ToLower().Contains(term) ||
+                x.Email.ToLower().Contains(term) ||
+                x.FullName.ToLower().Contains(term));
+        }
+
+        // 4) Sort
+        bool asc = q.SortDir.Equals("asc", StringComparison.OrdinalIgnoreCase);
+        baseQ = q.SortBy switch
+        {
+            "days" => asc
+                ? baseQ.OrderBy(x => x.DaysCount)
+                : baseQ.OrderByDescending(x => x.DaysCount),
+            _ => asc
+                ? baseQ.OrderBy(x => x.TotalAmount)
+                : baseQ.OrderByDescending(x => x.TotalAmount)
+        };
+
+        // 5) Phân trang
+        var totalItems = await baseQ.CountAsync();
+        var totalPages = (int)Math.Ceiling(totalItems / (double)q.Size);
+
+        var items = await baseQ
+            .Skip((q.Page - 1) * q.Size)
+            .Take(q.Size)
+            .ToListAsync();
+
+        // 6) Trả về
+        return Ok(new
+        {
+            totalItems,
+            totalPages,
+            page = q.Page,
+            size = q.Size,
+            hasPrevious = q.Page > 1,
+            hasNext = q.Page < totalPages,
+            items
+        });
+    }
 
     public class UserQueryParameters
     {
@@ -353,6 +431,35 @@ public class AdminUserController : ControllerBase
         [Required] public required string Password { get; set; }
         public string? FullName { get; set; }
         public IFormFile? Avatar { get; set; }
+    }
+    // Shared or within AdminUserController.cs
+
+    public class PaidUsersQuery
+    {
+        /// <summary>
+        /// Trang hiện tại (bắt đầu từ 1)
+        /// </summary>
+        public int Page { get; set; } = 1;
+
+        /// <summary>
+        /// Số bản ghi mỗi trang
+        /// </summary>
+        public int Size { get; set; } = 10;
+
+        /// <summary>
+        /// Từ khoá tìm kiếm trên username, email hoặc fullName
+        /// </summary>
+        public string? Term { get; set; } = "";
+
+        /// <summary>
+        /// Trường để sắp xếp: "amount" hoặc "days"
+        /// </summary>
+        public string SortBy { get; set; } = "amount";
+
+        /// <summary>
+        /// Hướng sắp xếp: "asc" hoặc "desc"
+        /// </summary>
+        public string SortDir { get; set; } = "desc";
     }
 
 }

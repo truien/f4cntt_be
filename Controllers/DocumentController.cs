@@ -64,6 +64,7 @@ public class DocumentController : ControllerBase
             ConversionStatus = "Pending",
             Summarystatus = "Pending",
             FileUrl = $"/uploads/originals/{originalName}",
+
         };
         _context.Documents.Add(document);
         await _context.SaveChangesAsync();
