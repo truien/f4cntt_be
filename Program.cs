@@ -14,6 +14,8 @@ using BACKEND.Workers;
 using Azure.AI.Translation.Text;
 using Azure;
 using Microsoft.Extensions.FileProviders;
+using BACKEND.Configuration;
+using Microsoft.Extensions.Options;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<EmailService>();
@@ -123,6 +125,15 @@ builder.Services.AddHttpClient<IPdfAiService, PdfAiService>(client =>
 {
     client.BaseAddress = new Uri(pdfAiCfg["BaseUrl"]!);
     client.DefaultRequestHeaders.Add("X-API-Key", pdfAiCfg["ApiKey"]!);
+    client.DefaultRequestHeaders.Accept
+            .Add(new MediaTypeWithQualityHeaderValue("application/json"));
+});
+builder.Services.Configure<PdfAiOptions>(builder.Configuration.GetSection("PdfAi"));
+builder.Services.AddHttpClient<IPdfAiService, PdfAiService>((sp, client) =>
+{
+    var opts = sp.GetRequiredService<IOptions<PdfAiOptions>>().Value;
+    client.BaseAddress = new Uri(opts.BaseUrl);
+    client.DefaultRequestHeaders.Add("X-API-Key", opts.ApiKey);
     client.DefaultRequestHeaders.Accept
             .Add(new MediaTypeWithQualityHeaderValue("application/json"));
 });

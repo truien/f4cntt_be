@@ -9,7 +9,6 @@ namespace BACKEND.Services
     {
         private readonly HttpClient _http;
         private readonly ILogger<PdfAiService> _logger;
-
         private readonly ITranslateService _translator;
 
         public PdfAiService(
@@ -57,6 +56,22 @@ namespace BACKEND.Services
             _logger.LogInformation("Translated to Vietnamese for docId={DocId}", docId);
 
             return vietnamese;
+        }
+
+        public async Task<string> ChatWithPdfAsync(string docId, string message, bool save_chat=true )
+        {
+            var payload = new
+            {
+                docId,
+                message,
+                save_chat = true,
+            };
+
+            var res = await _http.PostAsJsonAsync("chat", payload);
+            res.EnsureSuccessStatusCode();
+
+            using var json = await JsonDocument.ParseAsync(await res.Content.ReadAsStreamAsync());
+            return json.RootElement.GetProperty("content").GetString()!;
         }
     }
 
