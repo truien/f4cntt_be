@@ -58,6 +58,11 @@ public partial class Document
     /// </summary>
     public string? ImgUrl { get; set; }
 
+    /// <summary>
+    /// Số điểm cần có để tải tài liệu này
+    /// </summary>
+    public int PointCost { get; set; }
+
     public virtual Author Author { get; set; } = null!;
 
     public virtual Category Category { get; set; } = null!;
