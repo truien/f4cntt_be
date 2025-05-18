@@ -11,6 +11,10 @@ namespace BACKEND.Services
         /// Gọi summary qua docId.
         /// </summary>
         Task<string> SummarizeAsync(string docId);
+        /// <summary>
+        /// Gửi chat-with-pdf, trả về phần "answer" của JSON
+        /// </summary>
+        Task<string> ChatWithPdfAsync(string docId, string message, bool save_chat = true);
     }
 
 }

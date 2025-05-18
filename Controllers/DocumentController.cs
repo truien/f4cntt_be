@@ -1,10 +1,14 @@
 using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text.Json;
+using BACKEND.Configuration;
 using BACKEND.Models;
+using BACKEND.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 using UglyToad.PdfPig;
 
 namespace BACKEND.Controllers;
@@ -17,17 +21,29 @@ public class DocumentController : ControllerBase
     private readonly IWebHostEnvironment _env;
     private readonly IHttpClientFactory _httpFactory;
     private readonly PdfCoKeyManager _keyManager;
+    private readonly IPdfAiService _pdfAi;
+    private readonly string _apiKeyConfig;
+    private const string ApiKey = "pp00ypz7e8enqat8wt13y596";
+    private const string PdfAiChatUrl = "https://pdf.ai/api/v1/chat";
+    private const string PdfAiSummarizeUrl = "https://pdf.ai/api/v1/chat-all";
+    private readonly ILogger<DocumentController> _logger;
+
 
     public DocumentController(
         IWebHostEnvironment env,
         DBContext context,
         IHttpClientFactory httpFactory,
-        PdfCoKeyManager keyManager)
+        PdfCoKeyManager keyManager, IPdfAiService pdfAi,
+        IOptions<PdfAiOptions> opts,
+        ILogger<DocumentController> logger)
     {
         _env = env;
         _context = context;
         _httpFactory = httpFactory;
         _keyManager = keyManager;
+        _pdfAi = pdfAi;
+        _apiKeyConfig = opts.Value.ApiKey;
+        _logger = logger;
     }
 
     [Authorize]
@@ -69,7 +85,102 @@ public class DocumentController : ControllerBase
         await _context.SaveChangesAsync();
 
         return Accepted(new { message = "Tài liệu đã được upload thành công" });
-    }    // GET: Chi tiết tài liệu (public)
+    }
+    [HttpPost("chat")]
+    public async Task<IActionResult> ChatWithPdf([FromBody] ChatWithPdfRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.DocId) || string.IsNullOrWhiteSpace(req.Message))
+            return BadRequest("docId và message là bắt buộc.");
+
+        // Log payload trước khi gửi
+        _logger.LogInformation("Calling PDF.ai Chat: docId={DocId}, message={Message}, model={Model}",
+                               req.DocId, req.Message, req.Model);
+
+        var client = _httpFactory.CreateClient();
+        client.DefaultRequestHeaders.Clear();
+        client.DefaultRequestHeaders.Add("X-API-Key", ApiKey);
+        client.DefaultRequestHeaders.Add("Accept", "application/json");
+
+        var chatPayload = new
+        {
+            docId = req.DocId,
+            message = req.Message,
+            save_chat = req.SaveChat,
+            language = req.Language,
+            model = req.Model
+        };
+
+        HttpResponseMessage chatResp;
+        string chatBody;
+        try
+        {
+            chatResp = await client.PostAsJsonAsync(PdfAiChatUrl, chatPayload);
+            chatBody = await chatResp.Content.ReadAsStringAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Call to /chat failed");
+            return StatusCode(502, "Không thể kết nối tới PDF.ai chat service");
+        }
+
+        _logger.LogInformation("Chat response: {StatusCode} {Body}", (int)chatResp.StatusCode, chatBody);
+
+        // Nếu chat thành công, parse và trả về luôn
+        if (chatResp.IsSuccessStatusCode)
+        {
+            var chatJson = JsonDocument.Parse(chatBody).RootElement;
+            return Ok(new { content = chatJson.GetProperty("content").GetString() });
+        }
+
+        // Khi gặp lỗi 500 hoặc chatResp.StatusCode != 200
+        _logger.LogWarning("Chat failed ({Status}), falling back to /summarize", chatResp.StatusCode);
+
+        // --- Fallback: gọi /summarize để lấy summary chương 2 ---
+        var sumPayload = new
+        {
+            docId = req.DocId,
+            model = "gpt-3.5-turbo",
+            language = req.Language
+        };
+
+        HttpResponseMessage sumResp;
+        string sumBody;
+        try
+        {
+            sumResp = await client.PostAsJsonAsync(PdfAiSummarizeUrl, sumPayload);
+            sumBody = await sumResp.Content.ReadAsStringAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Call to /summarize failed");
+            return StatusCode(502, "Chat và Summarize đều thất bại");
+        }
+
+        if (!sumResp.IsSuccessStatusCode)
+        {
+            _logger.LogError("Summarize returned {Status}: {Body}", sumResp.StatusCode, sumBody);
+            return StatusCode((int)sumResp.StatusCode, sumBody);
+        }
+
+        // Trả summary thay thế
+        var sumJson = JsonDocument.Parse(sumBody).RootElement;
+        return Ok(new
+        {
+            content = sumJson.GetProperty("content").GetString(),
+            fallback_used = true
+        });
+    }
+
+    public class ChatWithPdfRequest
+    {
+        public string DocId { get; set; } = "";
+        public string Message { get; set; } = "";
+        public bool SaveChat { get; set; } = false;
+        public string Language { get; set; } = "vietnamese";
+        public string Model { get; set; } = "gpt-3.5-turbo";
+    }
+
+    // GET: Chi tiết tài liệu (public)
     [HttpGet("{id}")]
     public async Task<IActionResult> GetDocumentById(int id)
     {

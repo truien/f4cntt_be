@@ -1,11 +1,13 @@
 
 using System.ComponentModel.DataAnnotations;
 
-public class ChatRequest
+public class ChatWithPdfRequest
 {
-    [Required] public string DocId { get; set; } = null!;
-    [Required] public string Message { get; set; } = null!;
+    public string DocId { get; set; } = null!;
+    public string Message { get; set; } = null!;
+    public bool save_chat { get; set; } = true;
 }
+
 
 public class ChatResponse
 {
@@ -31,7 +33,7 @@ public class HistoryRequest
 
 public class HistoryEntry
 {
-    public string Role { get; set; } = null!;  
+    public string Role { get; set; } = null!;
     public string Message { get; set; } = null!;
     public DateTime CreatedAt { get; set; }
 }
