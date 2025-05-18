@@ -62,7 +62,8 @@ public class DocumentController : ControllerBase
             Status = req.Status,
             IsPremium = req.IsPremium,
             ConversionStatus = "Pending",
-            Summarystatus = "Pending"
+            Summarystatus = "Pending",
+            FileUrl = $"/uploads/originals/{originalName}"
         };
         _context.Documents.Add(document);
         await _context.SaveChangesAsync();

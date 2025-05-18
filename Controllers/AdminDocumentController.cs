@@ -164,12 +164,15 @@ public class AdminDocumentController : ControllerBase
             Author = doc.Author?.Name,
             Category = doc.Category?.Name,
             Publisher = doc.Publisher?.Name,
+            PublisherId = doc.PublisherId,
+            AuthorId = doc.AuthorId,
+            CategoryId = doc.CategoryId,
             doc.CreatedAt,
             pdf = !string.IsNullOrEmpty(doc.PdfUrl) ? $"{Request.Scheme}://{Request.Host}{doc.PdfUrl}" : null,
             doc.ConversionStatus,
             Summaries = doc.DocumentSummaries?.Select(s => new
             {
-            s.SummaryText
+                s.SummaryText
             }).ToList()
         });
     }

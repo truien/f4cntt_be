@@ -86,7 +86,12 @@ public class AuthorController : ControllerBase
     [HttpGet("{id}")]
     public async Task<IActionResult> GetAuthorById(int id)
     {
-        var author = await _context.Authors.FindAsync(id);
+        var author = await _context.Authors.Where(a => a.Id == id).Select(p => new
+        {
+            p.Id,
+            p.Name,
+            booksCount = _context.Documents.Count(d => d.AuthorId == p.Id)
+        }).FirstOrDefaultAsync();
         if (author == null)
             return NotFound(new { message = "Không tìm thấy tác giả." });
 
