@@ -10,4 +10,5 @@ public class DocumentUploadRequest
     [Required] public int Status { get; set; }
     [Required] public bool IsPremium { get; set; }
     [Required] public IFormFile File { get; set; } = null!;
+    [Required] public IFormFile Image { get; set; } = null!;
 }
