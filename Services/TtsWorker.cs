@@ -1,213 +1,154 @@
-// Workers/TtsWorker.cs
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
-using System.Text.RegularExpressions;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
-using BACKEND.Models;
-using BACKEND.Services;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using NAudio.Lame;
-using NAudio.Wave;
-using UglyToad.PdfPig;
+using BACKEND.Models;
+using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
+using System.Text;
 
-namespace BACKEND.Workers
+public class TtsWorker : BackgroundService
 {
-    public class TtsWorker : BackgroundService
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IHttpClientFactory _httpFactory;
+    private readonly ILogger<TtsWorker> _logger;
+    private readonly string _ttsApiBase;
+    private readonly string _appBase;
+
+    public TtsWorker(
+        IServiceScopeFactory scopeFactory,
+        IHttpClientFactory httpFactory,
+        ILogger<TtsWorker> logger,
+        IConfiguration config)
     {
-        private readonly IServiceScopeFactory _scopeFactory;
-        private readonly ITtsService _tts;
-        private readonly IWebHostEnvironment _env;
-        private readonly ILogger<TtsWorker> _logger;
+        _scopeFactory = scopeFactory;
+        _httpFactory = httpFactory;
+        _logger = logger;
+        _ttsApiBase = config["TtsApi:BaseUrl"]
+            ?? throw new ArgumentNullException("TtsApi:BaseUrl configuration is missing");
+        _appBase = config["App:BaseUrl"]
+            ?? throw new ArgumentNullException("App:BaseUrl configuration is missing");
 
-        public TtsWorker(
-            IServiceScopeFactory scopeFactory,
-            ITtsService tts,
-            IWebHostEnvironment env,
-            ILogger<TtsWorker> logger)
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        // Đảm bảo thư mục lưu audio luôn tồn tại
+        var ttsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "tts");
+        Directory.CreateDirectory(ttsFolder);
+
+        while (!stoppingToken.IsCancellationRequested)
         {
-            _scopeFactory = scopeFactory;
-            _tts = tts;
-            _env = env;
-            _logger = logger;
-        }
+            using var scope = _scopeFactory.CreateScope();
+            var ctx = scope.ServiceProvider.GetRequiredService<DBContext>();
+            var client = _httpFactory.CreateClient();
 
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-        {
-            while (!stoppingToken.IsCancellationRequested)
+            //
+            // 1) XỬ LÝ FULL-PDF → TTS
+            //
+            var docsToTts = await ctx.Documents
+                .Where(d => d.TtsStatus == "Pending")
+                .ToListAsync(stoppingToken);
+
+            foreach (var doc in docsToTts)
             {
-                using var scope = _scopeFactory.CreateScope();
-                var ctx = scope.ServiceProvider.GetRequiredService<DBContext>();
-
-                // 1) TTS Summary
-                var sumPendings = await ctx.Documents
-                    .Where(d => d.Summarystatus == "Success" && d.SummaryTtsStatus == "Pending")
-                    .ToListAsync(stoppingToken);
-                foreach (var d in sumPendings)
-                    await ProcessTts(d.Id, true, ctx, stoppingToken);
-
-                // 2) TTS Full text
-                var fullPendings = await ctx.Documents
-                    .Where(d => d.Summarystatus == "Success" && d.TtsStatus == "Pending")
-                    .ToListAsync(stoppingToken);
-                foreach (var d in fullPendings)
-                    await ProcessTts(d.Id, false, ctx, stoppingToken);
-
-                await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken);
-            }
-        }
-
-        private async Task ProcessTts(
-            int documentId,
-            bool isSummary,
-            DBContext ctx,
-            CancellationToken ct)
-        {
-            var doc = await ctx.Documents.FindAsync(new object[] { documentId }, ct);
-            if (doc == null) return;
-
-            // 1) Lấy nội dung
-            string text;
-            if (isSummary)
-            {
-                text = await ctx.DocumentSummaries
-                    .Where(s => s.DocumentId == documentId)
-                    .OrderByDescending(s => s.CreatedAt)
-                    .Select(s => s.SummaryText)
-                    .FirstOrDefaultAsync(ct) ?? string.Empty;
-                if (string.IsNullOrWhiteSpace(text))
+                try
                 {
-                    _logger.LogWarning("No summary for doc {Id}, skip.", documentId);
-                    return;
+                    doc.TtsStatus = "Working";
+                    await ctx.SaveChangesAsync(stoppingToken);
+
+                    // Download PDF
+                    var pdfUrl = $"{"http://localhost:5001/"}{doc.PdfUrl}";
+                    var pdfBytes = await client.GetByteArrayAsync(pdfUrl, stoppingToken);
+
+                    // Gửi lên API TTS
+                    using var form = new MultipartFormDataContent();
+                    var bin = new ByteArrayContent(pdfBytes);
+                    bin.Headers.ContentType = MediaTypeHeaderValue.Parse("application/pdf");
+#pragma warning disable CS8604 // Possible null reference argument.
+                    form.Add(bin, "file", Path.GetFileName(doc.PdfUrl));
+#pragma warning restore CS8604 // Possible null reference argument.
+
+                    var apiUrl = $"{_ttsApiBase}/api/tts/pdf?speed=175&pitch=50&volume=100";
+                    var resp = await client.PostAsync(apiUrl, form, stoppingToken);
+                    resp.EnsureSuccessStatusCode();
+
+                    var audio = await resp.Content.ReadAsByteArrayAsync(stoppingToken);
+                    var fn = $"full_{doc.Id}_{Guid.NewGuid()}.mp3";
+                    var path = Path.Combine(ttsFolder, fn);
+                    await File.WriteAllBytesAsync(path, audio, stoppingToken);
+
+                    // Cập nhật DB
+                    doc.TtsUrl = $"/uploads/tts/{fn}";
+                    doc.TtsStatus = "Success";
+                    await ctx.SaveChangesAsync(stoppingToken);
                 }
-            }
-            else
-            {
-                if (string.IsNullOrEmpty(doc.PdfUrl))
+                catch
                 {
-                    _logger.LogWarning("No PDF URL for doc {Id}, skip full TTS.", documentId);
-                    return;
-                }
-                var fullPath = Path.Combine(_env.WebRootPath,
-                    doc.PdfUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
-                if (!File.Exists(fullPath))
-                {
-                    _logger.LogWarning("PDF not found at {Path} for doc {Id}.", fullPath, documentId);
-                    return;
-                }
-                var sb = new StringBuilder();
-                using var pdf = PdfDocument.Open(fullPath);
-                foreach (var page in pdf.GetPages())
-                    sb.AppendLine(page.Text);
-                text = sb.ToString();
-            }
-
-            try
-            {
-                // 2) Đánh dấu đang xử lý
-                if (isSummary) doc.SummaryTtsStatus = "Working";
-                else doc.TtsStatus = "Working";
-                ctx.Update(doc);
-                await ctx.SaveChangesAsync(ct);
-
-                // 3) Gọi TTS & ghép MP3
-                var audio = await SynthesizeAndMergeAsync(text);
-
-                // 4) Lưu file MP3 & cập nhật đường dẫn
-                var subdir = isSummary ? "tts-summaries" : "tts-full";
-                var dir = Path.Combine(_env.WebRootPath, "uploads", subdir);
-                Directory.CreateDirectory(dir);
-                var filename = $"{Guid.NewGuid()}.mp3";
-                var filepath = Path.Combine(dir, filename);
-                await File.WriteAllBytesAsync(filepath, audio, ct);
-
-                if (isSummary) doc.SummaryTtsUrl = $"/uploads/{subdir}/{filename}";
-                else doc.TtsUrl = $"/uploads/{subdir}/{filename}";
-
-                if (isSummary) doc.SummaryTtsStatus = "Success";
-                else doc.TtsStatus = "Success";
-                ctx.Update(doc);
-                await ctx.SaveChangesAsync(ct);
-
-                _logger.LogInformation("TTS completed for doc {Id} (summary={IsSum}).",
-                    documentId, isSummary);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error TTS for doc {Id}.", documentId);
-                if (isSummary) doc.SummaryTtsStatus = "Error";
-                else doc.TtsStatus = "Error";
-                ctx.Update(doc);
-                await ctx.SaveChangesAsync(ct);
-            }
-        }
-
-        private List<string> SplitIntoChunks(string text, int maxSize = 400)
-        {
-            var sentences = Regex.Split(text, @"(?<=[\.\?\!])\s+")
-                                    .Where(s => !string.IsNullOrWhiteSpace(s))
-                                    .ToList();
-            var chunks = new List<string>();
-            var sb = new StringBuilder();
-            foreach (var s in sentences)
-            {
-                if (sb.Length + s.Length + 1 <= maxSize)
-                    sb.Append(s).Append(' ');
-                else
-                {
-                    chunks.Add(sb.ToString().Trim());
-                    sb.Clear();
-                    sb.Append(s).Append(' ');
-                }
-            }
-            if (sb.Length > 0) chunks.Add(sb.ToString().Trim());
-            return chunks;
-        }
-
-        // Helper 2: synth từng chunk rồi merge bằng LameMP3FileWriter
-        private async Task<byte[]> SynthesizeAndMergeAsync(string text)
-        {
-            var chunks = SplitIntoChunks(text, maxSize: 300);
-            var buffers = new List<byte[]>();
-            foreach (var chunk in chunks)
-            {
-                buffers.Add(await _tts.SynthesizeAsync(chunk));
-                await Task.Delay(200); // tránh rate-limit
-            }
-
-            using var output = new MemoryStream();
-            LameMP3FileWriter? writer = null;
-
-            foreach (var buf in buffers)
-            {
-                using var ms = new MemoryStream(buf);
-                using var reader = new Mp3FileReader(ms);
-
-                if (writer == null)
-                {
-                    // decode MP3 -> PCM rồi re-encode
-                    writer = new LameMP3FileWriter(output, reader.WaveFormat, LAMEPreset.STANDARD);
-                }
-
-                using var pcm = WaveFormatConversionStream.CreatePcmStream(reader);
-                var readBuf = new byte[pcm.WaveFormat.AverageBytesPerSecond];
-                int read;
-                while ((read = pcm.Read(readBuf, 0, readBuf.Length)) > 0)
-                {
-                    writer.Write(readBuf, 0, read);
+                    doc.TtsStatus = "Error";
+                    await ctx.SaveChangesAsync(stoppingToken);
                 }
             }
 
-            writer?.Flush();
-            writer?.Dispose();
+            //
+            // 2) XỬ LÝ SUMMARY → TTS
+            //
+            var docsToSum = await ctx.Documents
+                .Where(d => d.SummaryTtsStatus == "Pending")
+                .Include(d => d.DocumentSummaries)
+                .ToListAsync(stoppingToken);
 
-            return output.ToArray();
+            foreach (var doc in docsToSum)
+            {
+                try
+                {
+                    doc.SummaryTtsStatus = "Working";
+                    await ctx.SaveChangesAsync(stoppingToken);
+
+                    // Lấy text summary mới nhất
+                    var summaryText = doc.DocumentSummaries
+                                         .OrderByDescending(s => s.CreatedAt)
+                                         .First().SummaryText;
+
+                    // Gọi API TTS cho text
+                    var payload = new { text = summaryText };
+                    var json = new StringContent(
+                        JsonSerializer.Serialize(payload),
+                        Encoding.UTF8,
+                        "application/json");
+
+                    var apiUrl = $"{_ttsApiBase}/api/tts?speed=175&pitch=50&volume=100";
+                    var resp = await client.PostAsync(apiUrl, json, stoppingToken);
+                    resp.EnsureSuccessStatusCode();
+
+                    // Lưu file audio
+                    var audio = await resp.Content.ReadAsByteArrayAsync(stoppingToken);
+                    var fn = $"sum_{doc.Id}_{Guid.NewGuid()}.mp3";
+                    var path = Path.Combine(ttsFolder, fn);
+                    await File.WriteAllBytesAsync(path, audio, stoppingToken);
+
+                    // Cập nhật DB
+                    doc.SummaryTtsUrl = $"/uploads/tts/{fn}";
+                    doc.SummaryTtsStatus = "Success";
+                    await ctx.SaveChangesAsync(stoppingToken);
+                }
+                catch
+                {
+                    doc.SummaryTtsStatus = "Error";
+                    await ctx.SaveChangesAsync(stoppingToken);
+                }
+            }
+
+            // Chờ 30s rồi chạy lại
+            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
         }
     }
+
+
 }
